@@ -1,3 +1,90 @@
+<?php
+require 'db.php';
+
+// ==================== لوحة التحكم ====================
+if (isset($_GET['delete']) && (int)$_GET['delete'] > 0) {
+    $id = (int)$_GET['delete'];
+    $res = $conn->query("SELECT image FROM products WHERE id = $id");
+    if ($res && ($row = $res->fetch_assoc())) {
+        if (!empty($row['image']) && file_exists(__DIR__ . '/' . $row['image'])) {
+            unlink(__DIR__ . '/' . $row['image']);
+        }
+    }
+    $stmt = $conn->prepare("DELETE FROM products WHERE id = ?");
+    if (!$stmt) die("خطأ SQL: " . $conn->error);
+    $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $stmt->close();
+    header('Location: index.php?admin=1&msg=deleted');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = isset($_POST['action']) ? $_POST['action'] : '';
+    if ($action === 'add') {
+        $name = isset($_POST['name']) ? trim($_POST['name']) : '';
+        $price = isset($_POST['price']) ? (float)$_POST['price'] : 0;
+        $stock = isset($_POST['stock']) ? (int)$_POST['stock'] : 0;
+        $description = isset($_POST['description']) ? trim($_POST['description']) : '';
+        $category = isset($_POST['category']) ? trim($_POST['category']) : 'electronics';
+        $imagePath = null;
+        if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+            $uploadDir = __DIR__ . '/uploads/';
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+            $originalName = basename($_FILES['image']['name']);
+            $safeName = preg_replace('/[^A-Za-z0-9\.\-_]/', '_', $originalName);
+            $uniqueName = time() . '_' . $safeName;
+            if (move_uploaded_file($_FILES['image']['tmp_name'], $uploadDir . $uniqueName)) {
+                $imagePath = 'uploads/' . $uniqueName;
+            }
+        }
+        $stmt = $conn->prepare("INSERT INTO products (name, price, stock, description, image, category) VALUES (?, ?, ?, ?, ?, ?)");
+        if (!$stmt) die("خطأ SQL: " . $conn->error);
+        $stmt->bind_param('sdisss', $name, $price, $stock, $description, $imagePath, $category);
+        $stmt->execute();
+        $stmt->close();
+        header('Location: index.php?admin=1&msg=added');
+        exit;
+    }
+    if ($action === 'edit') {
+        $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+        $name = isset($_POST['name']) ? trim($_POST['name']) : '';
+        $price = isset($_POST['price']) ? (float)$_POST['price'] : 0;
+        $stock = isset($_POST['stock']) ? (int)$_POST['stock'] : 0;
+        $description = isset($_POST['description']) ? trim($_POST['description']) : '';
+        $category = isset($_POST['category']) ? trim($_POST['category']) : 'electronics';
+        $stmt = $conn->prepare("UPDATE products SET name = ?, price = ?, stock = ?, description = ?, category = ? WHERE id = ?");
+        if (!$stmt) die("خطأ SQL: " . $conn->error);
+        $stmt->bind_param('sdissi', $name, $price, $stock, $description, $category, $id);
+        $stmt->execute();
+        $stmt->close();
+        header('Location: index.php?admin=1&msg=updated');
+        exit;
+    }
+}
+
+// المنتجات المعروضة في المتجر تأتي حصراً من قاعدة البيانات
+$storeProducts = [];
+$resultStore = $conn->query("SELECT id, name, price, category, image, description FROM products WHERE stock > 0 ORDER BY id DESC");
+if ($resultStore) {
+    while ($row = $resultStore->fetch_assoc()) {
+        $storeProducts[] = [
+            'id' => (string)$row['id'],
+            'name' => $row['name'],
+            'price' => (float)$row['price'],
+            'category' => $row['category'],
+            'image' => !empty($row['image']) ? $row['image'] : 'icons/1921-v2.png',
+            'desc' => isset($row['description']) ? $row['description'] : ''
+        ];
+    }
+}
+
+$adminMode = isset($_GET['admin']) && $_GET['admin'] === '1';
+$adminProducts = $adminMode ? $conn->query("SELECT * FROM products ORDER BY id DESC") : null;
+$messages = ['added'=>'تمت إضافة المنتج بنجاح.','updated'=>'تم تحديث المنتج بنجاح.','deleted'=>'تم حذف المنتج بنجاح.'];
+$msgKey = isset($_GET['msg']) ? $_GET['msg'] : '';
+$alert = isset($messages[$msgKey]) ? $messages[$msgKey] : '';
+?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -444,9 +531,80 @@ footer { text-align: center; color: var(--muted); padding: 18px 16px 28px; font-
     .site-header, footer, .bottom-nav, .cart-modal, .toast, .page, .print-row { display: none !important; }
     #invoice-section { display: block !important; border: none; margin: 0; max-width: 100%; }
 }
+
+/* ================= ADMIN PANEL ================= */
+.admin-page { max-width:1100px; margin:24px auto; padding:0 16px 40px; }
+.admin-header { background:linear-gradient(135deg,#2563eb,#1d4ed8); color:#fff; padding:20px 24px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.1); margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+.admin-header h1 { font-size:1.35rem; }
+.admin-link { color:#fff; text-decoration:none; background:rgba(255,255,255,.15); padding:8px 16px; border-radius:8px; font-weight:700; }
+.admin-alert { background:#dcfce7; color:#166534; border:1px solid #86efac; padding:12px 16px; border-radius:10px; margin-bottom:20px; }
+.admin-card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px; box-shadow:var(--shadow); margin-bottom:24px; }
+.admin-card h2 { font-size:1.15rem; margin-bottom:18px; }
+.admin-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+.admin-field { display:flex; flex-direction:column; gap:6px; }
+.admin-field.full { grid-column:1/-1; }
+.admin-field label { font-size:.85rem; font-weight:700; color:var(--muted); }
+.admin-field input,.admin-field textarea,.admin-field select { padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-family:inherit; font-size:.95rem; background:var(--bg); color:var(--text); }
+.admin-btn { border:0; padding:10px 16px; border-radius:8px; font-family:inherit; font-weight:700; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:7px; }
+.admin-primary { background:#2563eb; color:#fff; } .admin-success { background:#16a34a; color:#fff; } .admin-danger { background:#dc2626; color:#fff; } .admin-warning { background:#d97706; color:#fff; }
+.admin-table-wrap { overflow-x:auto; } .admin-table { width:100%; border-collapse:collapse; min-width:800px; }
+.admin-table th,.admin-table td { padding:12px 14px; text-align:right; border-bottom:1px solid var(--line); font-size:.9rem; }
+.admin-table th { background:var(--bg); color:var(--muted); white-space:nowrap; }
+.admin-table img { width:50px; height:50px; object-fit:cover; border-radius:8px; }
+.admin-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.admin-badge { padding:4px 12px; border-radius:20px; font-size:.8rem; font-weight:700; white-space:nowrap; }
+.admin-in { background:#dcfce7; color:#166534; } .admin-out { background:#fee2e2; color:#991b1b; }
+@media(max-width:600px){.admin-grid{grid-template-columns:1fr}.admin-card{padding:16px}.admin-header h1{font-size:1.05rem}}
+
 </style>
-</head>
-<body>
+</head><body>
+<?php if ($adminMode): ?>
+<div class="admin-page">
+  <div class="admin-header">
+    <h1>🛠️ لوحة تحكم GLAKTARBO</h1>
+    <a class="admin-link" href="index.php">🛒 عرض المتجر</a>
+  </div>
+  <?php if ($alert): ?><div class="admin-alert">✅ <?= htmlspecialchars($alert) ?></div><?php endif; ?>
+
+  <div class="admin-card">
+    <h2>➕ إضافة منتج جديد</h2>
+    <form method="POST" enctype="multipart/form-data" autocomplete="off">
+      <input type="hidden" name="action" value="add">
+      <div class="admin-grid">
+        <div class="admin-field"><label>اسم المنتج *</label><input type="text" name="name" required placeholder="مثال: تيشيرت قطن"></div>
+        <div class="admin-field"><label>السعر *</label><input type="number" name="price" step="0.01" min="0" required></div>
+        <div class="admin-field"><label>المخزون *</label><input type="number" name="stock" min="0" required></div>
+        <div class="admin-field"><label>القسم *</label><select name="category" required><option value="electronics">الأجهزة الإلكترونية</option><option value="clothing">الملابس والحقائب</option></select></div>
+        <div class="admin-field"><label>صورة المنتج</label><input type="file" name="image" accept="image/*"></div>
+        <div class="admin-field full"><label>الوصف</label><textarea name="description" rows="3" placeholder="وصف المنتج..."></textarea></div>
+      </div>
+      <button type="submit" class="admin-btn admin-primary" style="margin-top:16px">💾 حفظ المنتج</button>
+    </form>
+  </div>
+
+  <div class="admin-card">
+    <h2>📦 المنتجات (<?= $adminProducts ? $adminProducts->num_rows : 0 ?>)</h2>
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>الصورة</th><th>الاسم</th><th>السعر</th><th>المخزون</th><th>القسم</th><th>الحالة</th><th>الوصف</th><th>إجراءات</th></tr></thead><tbody>
+    <?php if (!$adminProducts || $adminProducts->num_rows === 0): ?>
+      <tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted)">لا توجد منتجات بعد. أضف أول منتج.</td></tr>
+    <?php else: while ($p = $adminProducts->fetch_assoc()): $inStock=(int)$p['stock']>0; $editing=isset($_GET['edit']) && (int)$_GET['edit']===(int)$p['id']; ?>
+      <?php if ($editing): ?>
+      <tr><form method="POST" action="index.php?admin=1"><input type="hidden" name="action" value="edit"><input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+        <td><?php if(!empty($p['image'])):?><img src="<?= htmlspecialchars($p['image']) ?>" alt=""><?php endif;?></td>
+        <td><input name="name" value="<?= htmlspecialchars($p['name']) ?>" required></td><td><input type="number" step="0.01" name="price" value="<?= htmlspecialchars($p['price']) ?>" required></td><td><input type="number" name="stock" value="<?= (int)$p['stock'] ?>" required></td>
+        <td><select name="category"><option value="electronics" <?= $p['category']==='electronics'?'selected':'' ?>>إلكترونيات</option><option value="clothing" <?= $p['category']==='clothing'?'selected':'' ?>>ملابس</option></select></td>
+        <td><?= $inStock?'<span class="admin-badge admin-in">متوفر</span>':'<span class="admin-badge admin-out">غير متوفر</span>' ?></td><td><textarea name="description" rows="2"><?= htmlspecialchars(isset($p['description']) ? $p['description'] : '') ?></textarea></td>
+        <td><div class="admin-actions"><button class="admin-btn admin-success" type="submit">✓</button><a class="admin-btn" href="index.php?admin=1">✕</a></div></td>
+      </form></tr>
+      <?php else: ?>
+      <tr><td><?php if(!empty($p['image']) && file_exists(__DIR__.'/'.$p['image'])):?><img src="<?= htmlspecialchars($p['image']) ?>" alt=""><?php else: ?>—<?php endif;?></td><td><strong><?= htmlspecialchars($p['name']) ?></strong></td><td><?= number_format($p['price'],2) ?></td><td><?= (int)$p['stock'] ?></td><td><?= htmlspecialchars($p['category']) ?></td><td><?= $inStock?'<span class="admin-badge admin-in">متوفر</span>':'<span class="admin-badge admin-out">غير متوفر</span>' ?></td><td><?= nl2br(htmlspecialchars(isset($p['description']) ? $p['description'] : '')) ?></td><td><div class="admin-actions"><a class="admin-btn admin-warning" href="index.php?admin=1&edit=<?= (int)$p['id'] ?>">✎</a><a class="admin-btn admin-danger" href="index.php?admin=1&delete=<?= (int)$p['id'] ?>" onclick="return confirm('هل أنت متأكد من حذف هذا المنتج؟')">🗑</a></div></td></tr>
+      <?php endif; ?>
+    <?php endwhile; endif; ?>
+    </tbody></table></div>
+  </div>
+</div>
+<?php else: ?>
+
     <header class="site-header">
         <button class="icon-btn menu-btn" id="menu-btn" aria-label="القائمة">☰</button>
         <button class="brand" onclick="showPage('home')">
@@ -582,8 +740,7 @@ footer { text-align: center; color: var(--muted); padding: 18px 16px 28px; font-
             </article>
         </div>
     </section>
-
-    <section id="invoice-section">
+  <section id="invoice-section">
         <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:16px;">
             <h2>فاتورة شراء رسمية - GLAKTARBO</h2>
             <p>تاريخ الفاتورة: <span id="invoice-date"></span></p>
@@ -657,40 +814,7 @@ footer { text-align: center; color: var(--muted); padding: 18px 16px 28px; font-
     <footer>&copy; 2026 جميع الحقوق محفوظة — متجر وماركة GLAKTARBO</footer>
 
 <script>
-const PRODUCTS = [
-    {
-        id: 'hp-envy',
-        name: 'حاسوب محمول HP Envy فائق الأداء',
-        price: 1200,
-        category: 'electronics',
-        image: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800',
-        desc: 'لابتوب عالي الأداء ضمن قسم الأجهزة الإلكترونية.'
-    },
-    {
-        id: 'smart-watch',
-        name: 'ساعة ذكية مقاومة للماء',
-        price: 250,
-        category: 'electronics',
-        image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800',
-        desc: 'ساعة رقمية متطورة مقاومة للماء للاستخدام اليومي.'
-    },
-    {
-        id: 'smart-backpack',
-        name: 'حقيبة ظهر ذكية مقاومة للسرقة والماء',
-        price: 85,
-        category: 'clothing',
-        image: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800',
-        desc: 'حقيبة عملية للسفر والاستخدام اليومي.'
-    },
-    {
-        id: 'winter-jacket',
-        name: 'جاكيت شتوي عصري فاخر',
-        price: 150,
-        category: 'clothing',
-        image: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?w=800',
-        desc: 'جاكيت شتوي من تشكيلة الملابس العصرية.'
-    }
-];
+const PRODUCTS = <?= json_encode($storeProducts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 
 let cart = [];
 let discountType = null;
@@ -876,7 +1000,7 @@ function removeFromCart(index) {
         document.getElementById('coupon-message').textContent = '';
         document.getElementById('coupon-code').value = '';
     }
-    saveCart();
+     saveCart();
     updateCartCounter();
     renderCartItems();
 }
@@ -1012,5 +1136,7 @@ if ('serviceWorker' in navigator) {
     });
 }
 </script>
+
+<?php endif; ?>
 </body>
 </html>

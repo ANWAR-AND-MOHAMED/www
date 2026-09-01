@@ -19,11 +19,11 @@ require 'db.php';
 // --- (أ) إضافة منتج جديد ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add') {
 
-    $name        = trim($_POST['name'] ?? '');
-    $price       = (float)($_POST['price'] ?? 0);
-    $stock       = (int)($_POST['stock'] ?? 0);
-    $description = trim($_POST['description'] ?? '');
-    $category    = trim($_POST['category'] ?? 'electronics');
+    $name        = isset($_POST['name']) ? trim($_POST['name']) : '';
+    $price       = isset($_POST['price']) ? (float)$_POST['price'] : 0;
+    $stock       = isset($_POST['stock']) ? (int)$_POST['stock'] : 0;
+    $description = isset($_POST['description']) ? trim($_POST['description']) : '';
+    $category    = isset($_POST['category']) ? trim($_POST['category']) : 'electronics';
     $imagePath   = null;
 
     // التحقق من رفع صورة بدون أخطاء
@@ -36,9 +36,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         // تنظيف اسم الملف وإنشاء اسم فريد لتفادي التعارض
         $originalName = basename($_FILES['image']['name']);
-        $safeName      = preg_replace('/[^A-Za-z0-9\.\-_]/', '_', $originalName);
-        $uniqueName    = time() . '_' . $safeName;
-        $targetPath    = $uploadDir . $uniqueName;
+        $safeName     = preg_replace('/[^A-Za-z0-9\.\-_]/', '_', $originalName);
+        $uniqueName   = time() . '_' . $safeName;
+        $targetPath   = $uploadDir . $uniqueName;
 
         // نقل الملف المؤقت إلى مجلد uploads
         if (move_uploaded_file($_FILES['image']['tmp_name'], $targetPath)) {
@@ -46,10 +46,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
 
-    // إدخال المنتج في قاعدة البيانات
+    // إدخال المنتج في قاعدة البيانات (تم تعديل علامات الاستفهام والأنواع)
     $stmt = $conn->prepare(
         "INSERT INTO products (name, price, stock, description, image, category) VALUES (?, ?, ?, ?, ?, ?)"
     );
+
+    if (!$stmt) {
+        die("خطأ SQL: " . $conn->error);
+    }
+
     $stmt->bind_param('sdisss', $name, $price, $stock, $description, $imagePath, $category);
     $stmt->execute();
     $stmt->close();
@@ -61,12 +66,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // --- (ب) تعديل منتج موجود (الاسم، السعر، المخزون، الوصف) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit') {
 
-    $id          = (int)($_POST['id'] ?? 0);
-    $name        = trim($_POST['name'] ?? '');
-    $price       = (float)($_POST['price'] ?? 0);
-    $stock       = (int)($_POST['stock'] ?? 0);
-    $description = trim($_POST['description'] ?? '');
-    $category    = trim($_POST['category'] ?? 'electronics');
+    $id          = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+    $name        = isset($_POST['name']) ? trim($_POST['name']) : '';
+    $price       = isset($_POST['price']) ? (float)$_POST['price'] : 0;
+    $stock       = isset($_POST['stock']) ? (int)$_POST['stock'] : 0;
+    $description = isset($_POST['description']) ? trim($_POST['description']) : '';
+    $category    = isset($_POST['category']) ? trim($_POST['category']) : 'electronics';
 
     $stmt = $conn->prepare(
         "UPDATE products SET name = ?, price = ?, stock = ?, description = ?, category = ? WHERE id = ?"
@@ -111,7 +116,7 @@ $messages = [
     'updated' => 'تم تحديث المنتج بنجاح.',
     'deleted' => 'تم حذف المنتج بنجاح.',
 ];
-$alert = $messages[$_GET['msg'] ?? ''] ?? '';
+$alert = isset($_GET['msg']) && isset($messages[$_GET['msg']]) ? $messages[$_GET['msg']] : '';
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -325,7 +330,7 @@ $alert = $messages[$_GET['msg'] ?? ''] ?? '';
 
     <!-- ============= جدول المنتجات ============= -->
     <div class="card">
-        <h2><i class="bi bi-box-seam"></i> المنتجات (<?= $products->num_rows ?>)</h2>
+        <h2><i class="bi bi-box-seam"></i> المنتجات (<?= $products ? $products->num_rows : 0 ?>)</h2>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -341,13 +346,13 @@ $alert = $messages[$_GET['msg'] ?? ''] ?? '';
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if ($products->num_rows === 0): ?>
+                    <?php if (!$products || $products->num_rows === 0): ?>
                         <tr><td colspan="8" style="text-align:center;color:var(--muted);">لا توجد منتجات بعد. أضف أول منتج.</td></tr>
                     <?php else: ?>
                         <?php while ($p = $products->fetch_assoc()): ?>
                             <?php
                             // تحديد حالة المخزون
-                            $inStock = (int)$p['stock'] > 0;
+                            $inStock = isset($p['stock']) && (int)$p['stock'] > 0;
                             // هل نحن في وضع التعديل لهذا الصف؟
                             $editing = isset($_GET['edit']) && (int)$_GET['edit'] === (int)$p['id'];
                             ?>
@@ -366,11 +371,11 @@ $alert = $messages[$_GET['msg'] ?? ''] ?? '';
                                         </td>
                                         <td><input type="text" name="name" value="<?= htmlspecialchars($p['name']) ?>" required></td>
                                         <td><input type="number" name="price" step="0.01" min="0" value="<?= htmlspecialchars($p['price']) ?>" required></td>
-                                        <td><input type="number" name="stock" min="0" value="<?= (int)$p['stock'] ?>" required></td>
+                                        <td><input type="number" name="stock" min="0" value="<?= isset($p['stock']) ? (int)$p['stock'] : 0 ?>" required></td>
                                         <td>
                                             <select name="category">
-                                                <option value="electronics" <?= ($p['category'] ?? '') === 'electronics' ? 'selected' : '' ?>>إلكترونيات</option>
-                                                <option value="clothing" <?= ($p['category'] ?? '') === 'clothing' ? 'selected' : '' ?>>ملابس</option>
+                                                <option value="electronics" <?= (isset($p['category']) ? $p['category'] : '') === 'electronics' ? 'selected' : '' ?>>إلكترونيات</option>
+                                                <option value="clothing" <?= (isset($p['category']) ? $p['category'] : '') === 'clothing' ? 'selected' : '' ?>>ملابس</option>
                                             </select>
                                         </td>
                                         <td>
@@ -380,7 +385,7 @@ $alert = $messages[$_GET['msg'] ?? ''] ?? '';
                                                 <span class="badge badge-out">غير متوفر</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td><textarea name="description" rows="2"><?= htmlspecialchars($p['description'] ?? '') ?></textarea></td>
+                                        <td><textarea name="description" rows="2"><?= htmlspecialchars(isset($p['description']) ? $p['description'] : '') ?></textarea></td>
                                         <td>
                                             <div class="actions">
                                                 <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-check-lg"></i></button>
@@ -401,11 +406,12 @@ $alert = $messages[$_GET['msg'] ?? ''] ?? '';
                                     </td>
                                     <td><strong><?= htmlspecialchars($p['name']) ?></strong></td>
                                     <td><?= number_format($p['price'], 2) ?> ج.م</td>
-                                    <td><?= (int)$p['stock'] ?></td>
+                                    <td><?= isset($p['stock']) ? (int)$p['stock'] : 0 ?></td>
                                     <td>
                                         <?php
                                         $catNames = ['electronics' => 'إلكترونيات', 'clothing' => 'ملابس'];
-                                        $catLabel = $catNames[$p['category'] ?? ''] ?? $p['category'];
+                                        $catKey = isset($p['category']) ? $p['category'] : '';
+                                        $catLabel = isset($catNames[$catKey]) ? $catNames[$catKey] : $catKey;
                                         ?>
                                         <span style="font-size:0.8rem;color:var(--muted);"><?= htmlspecialchars($catLabel) ?></span>
                                     </td>
@@ -416,7 +422,7 @@ $alert = $messages[$_GET['msg'] ?? ''] ?? '';
                                             <span class="badge badge-out">غير متوفر</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td style="max-width:200px;color:var(--muted);"><?= nl2br(htmlspecialchars($p['description'] ?? '')) ?></td>
+                                    <td style="max-width:200px;color:var(--muted);"><?= nl2br(htmlspecialchars(isset($p['description']) ? $p['description'] : '')) ?></td>
                                     <td>
                                         <div class="actions">
                                             <a href="admin.php?edit=<?= (int)$p['id'] ?>" class="btn btn-warning btn-sm" title="تعديل"><i class="bi bi-pencil"></i></a>
